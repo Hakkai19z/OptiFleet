@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: optifleet_app
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: dev
+      APP_SECRET: ${APP_SECRET:-change_me_in_production}
+      DATABASE_URL: postgresql://optifleet:secret@db:5432/optifleet?serverVersion=16&charset=utf8
+      JWT_SECRET_KEY: /var/www/html/config/jwt/private.pem
+      JWT_PUBLIC_KEY: /var/www/html/config/jwt/public.pem
+      JWT_PASSPHRASE: ${JWT_PASSPHRASE:-optifleet_jwt_passphrase}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      MAILER_DSN: ${MAILER_DSN:-null://null}
+      CORS_ALLOW_ORIGIN: "^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - optifleet_network
+
+  db:
+    image: postgres:16-alpine
+    container_name: optifleet_db
+    environment:
+      POSTGRES_DB: optifleet
+      POSTGRES_USER: optifleet
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optifleet -d optifleet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - optifleet_network
+
+  front:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: optifleet_front
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - app
+    networks:
+      - optifleet_network
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  optifleet_network:
+    driver: bridge
