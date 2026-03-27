@@ -17,6 +17,8 @@ OptiFleet permet aux entreprises de gérer leur parc automobile : suivi des véh
 | Infrastructure | Docker + docker-compose |
 | CI/CD | GitHub Actions |
 | Tests | PHPUnit (backend) + Vitest (frontend) |
+| Graphiques | Recharts |
+| State management | Zustand |
 
 ## Prérequis
 
@@ -47,8 +49,8 @@ Les migrations sont appliquées automatiquement au démarrage.
 | Rôle | Email | Mot de passe |
 |------|-------|--------------|
 | Administrateur | admin@optifleet.fr | Admin1234! |
-| Gestionnaire | gestionnaire@optifleet.fr | Gest1234! |
-| Conducteur | conducteur@optifleet.fr | Cond1234! |
+| Gestionnaire | gestionnaire@optifleet.fr | Admin1234! |
+| Conducteur | conducteur@optifleet.fr | Admin1234! |
 
 ## Variables d'environnement obligatoires
 
@@ -57,7 +59,7 @@ Copier `backend/.env.example` vers `backend/.env` et renseigner :
 ```env
 APP_SECRET=             # Clé secrète Symfony (32 chars min)
 JWT_PASSPHRASE=         # Passphrase pour les clés JWT RSA
-GOOGLE_MAPS_API_KEY=    # Clé API Google Maps Geocoding
+GOOGLE_MAPS_API_KEY=    # Clé API Google Maps Geocoding (optionnel)
 MAILER_DSN=             # DSN SMTP pour les emails d'alertes
 ```
 
@@ -68,47 +70,80 @@ MAILER_DSN=             # DSN SMTP pour les emails d'alertes
 docker-compose exec app vendor/bin/phpunit --coverage-text
 
 # Tests frontend (Vitest)
-docker-compose exec front npm run test -- --coverage
+docker-compose exec front npm run test:coverage
 ```
 
 ## Architecture
 
 ```
 optifleet/
-├── backend/          # Symfony 7 + API Platform
-├── frontend/         # React 18 + Vite
-├── .github/
-│   └── workflows/    # GitHub Actions CI
-├── docker-compose.yml
-└── docker-compose.prod.yml
+├── backend/                    # Symfony 7 + API Platform
+│   ├── src/
+│   │   ├── Entity/             # Vehicule, Utilisateur, Entretien, Alerte, Affectation, Categorie
+│   │   ├── Repository/         # Requêtes Doctrine personnalisées
+│   │   ├── Service/            # VehiculeService, AlerteService, EntretienService, GeocodingService
+│   │   ├── Controller/         # DashboardController, AuthController
+│   │   ├── Security/           # VehiculeVoter, UtilisateurVoter
+│   │   └── Scheduler/          # AlerteScheduler (cron 02:00 quotidien)
+│   ├── migrations/             # Migrations Doctrine
+│   ├── tests/                  # PHPUnit Unit + Functional
+│   └── config/                 # Configuration Symfony
+├── frontend/                   # React 18 + Vite
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ui/             # Button, Badge, Card, Input, Table, Toast, Skeleton
+│   │   │   └── layout/         # Sidebar, TopBar, Layout
+│   │   ├── pages/              # Login, Dashboard, Vehicules, Entretiens, Alertes, Admin
+│   │   ├── hooks/              # useAuth, useVehicules, useAlertes
+│   │   ├── services/           # api.js + services métier
+│   │   └── store/              # Zustand (authStore, toastStore)
+│   └── tests/                  # Vitest
+├── .github/workflows/ci.yml    # CI GitHub Actions
+├── docker-compose.yml          # Dev
+└── docker-compose.prod.yml     # Production
 ```
 
 ## Entités principales
 
-- **Vehicule** — Parc automobile avec statut et catégorie
-- **Utilisateur** — Admin / Gestionnaire / Conducteur
-- **Affectation** — Lien véhicule ↔ conducteur avec période
-- **Entretien** — Historique et planification des maintenances
-- **Alerte** — Alertes automatiques (assurance, CT, révision)
-- **Categorie** — Classification des véhicules
+| Entité | Description |
+|--------|-------------|
+| **Vehicule** | Parc automobile (immatriculation, statut, kilométrage, géolocalisation) |
+| **Utilisateur** | Admin / Gestionnaire / Conducteur (JWT, bcrypt cost 12) |
+| **Affectation** | Lien véhicule ↔ conducteur avec vérification chevauchement |
+| **Entretien** | Historique et planification (isEchu() par date ou km) |
+| **Alerte** | Alertes automatiques générées par le scheduler |
+| **Categorie** | Classification des véhicules |
 
 ## Fonctionnalités
 
-- Authentification JWT (RS256) avec refresh token
-- CRUD complet véhicules, entretiens, affectations
-- Alertes automatiques (Symfony Scheduler, cron 24h)
-- Emails d'alertes (Symfony Mailer, template HTML)
-- Dashboard KPIs (disponibilité, coûts maintenance)
-- Géocodage d'adresses (Google Maps API)
+- Authentification JWT RS256 (expiration 15 min, refresh 7 jours)
+- Rate limiting : blocage après 5 tentatives échouées (15 min)
+- CRUD complet véhicules avec validation immatriculation regex `AA-000-AA`
+- Vérification chevauchement affectations
+- Alertes automatiques (Symfony Scheduler, cron 02:00 quotidien)
+- Emails d'alertes HTML (Symfony Mailer, template Twig)
+- Dashboard KPIs (disponibilité, coûts maintenance 12 mois, graphiques)
+- Géocodage d'adresses (Google Maps Geocoding API)
 - Contrôle d'accès par rôles (Voters Symfony)
-- Rate limiting (blocage après 5 tentatives échouées)
+- Headers sécurité (X-Frame-Options, X-Content-Type-Options)
+- Pages React avec squelettes de chargement, toasts, filtres, pagination
 
 ## Déploiement production
 
 ```bash
 cp .env.example .env
-# Renseigner les variables de production
+# Renseigner toutes les variables de production
 docker-compose -f docker-compose.prod.yml up -d
+```
+
+## Lancer les tests localement
+
+```bash
+# Backend
+cd backend && vendor/bin/phpunit
+
+# Frontend
+cd frontend && npm run test
 ```
 
 ## Licence
